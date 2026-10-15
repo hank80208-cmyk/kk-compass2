@@ -1,0 +1,40 @@
+{
+  "top_n": 100,
+  "days_daily": 3300,
+  "days_4h": 2200,
+  "days_1h": 2200,
+  "funding_days": 30,
+  "min_daily_bars": 240,
+  "min_quote_volume_usd": 1000000,
+  "pivot_k": 3,
+  "stop_mode": "pullback",
+  "stop_buffer_atr": 0.1,
+  "stop_atr_min": 0.5,
+  "stop_atr_max": 3.0,
+  "min_room_r": 2.0,
+  "btc_strong_score": 4,
+  "max_risk_pct": 5.5,
+  "signal_fresh_bars": 6,
+  "max_hold_hours": 168,
+  "retest_bars": 12,
+  "oos_fraction": 0.3,
+  "min_trades_for_stats": 30,
+  "funding_crowded_pct": 90,
+  "telegram_bot_token": "",
+  "telegram_chat_id": "",
+  "notify_grades": [
+    "A",
+    "B"
+  ],
+  "deep_report_always": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT"
+  ],
+  "deep_report_max": 25,
+  "max_risk_pct_d": 15.0,
+  "signal_fresh_days": 3,
+  "risk_per_trade_pct": 1.0,
+  "target_max_dd_pct": 20,
+  "report_url": "https://claude.ai/artifact/Fbpc7JBnVXi9x2RHLcunZC"
+}
