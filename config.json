@@ -36,5 +36,6 @@
   "signal_fresh_days": 3,
   "risk_per_trade_pct": 1.0,
   "target_max_dd_pct": 20,
-  "report_url": "https://claude.ai/artifact/Fbpc7JBnVXi9x2RHLcunZC"
+  "report_url": "https://claude.ai/artifact/Fbpc7JBnVXi9x2RHLcunZC",
+  "email_include_link": false
 }

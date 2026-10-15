@@ -60,7 +60,7 @@ def cmd_daily(artifact=False, notify_on=True):
     with open(os.path.join(STATE, "strategies.json"), "w", encoding="utf-8") as f:
         json.dump(dict(generated=ctx["now_tw"], strategies=slim_strategies(ctx["backtest"]["strategies"])),
                   f, ensure_ascii=False, default=str)
-    subject, html_body, text_body = emailer.build_email(ctx, cfg.get("report_url"))
+    subject, html_body, text_body = emailer.build_email(ctx, cfg.get("report_url") if cfg.get("email_include_link") else None)
     with open(os.path.join(STATE, "email.json"), "w", encoding="utf-8") as f:
         json.dump(dict(subject=subject, html=html_body, text=text_body), f, ensure_ascii=False)
     log(f"完成，用時 {time.time() - t0:.0f} 秒 → {OUT}/index.html；email 內容 → state/email.json")
