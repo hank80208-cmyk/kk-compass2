@@ -51,6 +51,31 @@ def plan_rows(p):
     return rows
 
 
+def us_html(us):
+    """美股與商品觀察表。只描述狀態，不給建議。"""
+    if not us:
+        return ""
+    rows = ""
+    for x in us:
+        if x.get("error"):
+            rows += f'<tr><td style="padding:6px 10px 6px 0">{e(x["name"])}</td><td colspan="3" style="color:{MUTED}">{e(x["error"])}</td></tr>'
+            continue
+        sc = x["score"]
+        col = LONG if (sc or 0) >= 2 else SHORT if (sc or 0) <= -2 else MUTED
+        c7 = x["chg7"] or 0
+        rows += (f'<tr style="border-top:1px solid {LINE}"><td style="padding:6px 10px 6px 0;vertical-align:top;white-space:nowrap"><b>{e(x["name"])}</b></td>'
+                 f'<td style="padding:6px 10px 6px 0;vertical-align:top;font-family:Menlo,Consolas,monospace;white-space:nowrap">{fp(x["price"])}<br>'
+                 f'<span style="color:{LONG if c7 > 0 else SHORT};font-size:12px">7日 {c7:+.1f}%</span></td>'
+                 f'<td style="padding:6px 10px 6px 0;vertical-align:top;color:{col};white-space:nowrap">'
+                 f'{(f"{sc:+.0f}" if sc is not None else "—")}</td>'
+                 f'<td style="padding:6px 0;vertical-align:top;font-size:13px">{e(x["desc"])}</td></tr>')
+    return (f'<h3 style="font-size:16px;margin:22px 0 4px">美股與商品觀察</h3>'
+            f'<p style="margin:0 0 6px;font-size:12px;color:{MUTED}">報價為 Hyperliquid 股票／商品永續合約。這些市場上線不到一年，'
+            f'加密貨幣的回測證據不適用，以下只描述目前狀態，不是進場建議。</p>'
+            f'<table style="border-collapse:collapse;font-size:14px;width:100%"><tr style="color:{MUTED};font-size:12px">'
+            f'<td>標的</td><td>價格</td><td>日線分數</td><td>狀態</td></tr>{rows}</table>')
+
+
 def build_email(ctx, report_url=None):
     recs = ctx["recs"]
     acts = [r for r in recs.values() if r["action"] != "觀望"]
@@ -125,7 +150,7 @@ def build_email(ctx, report_url=None):
 <span style="color:{MUTED}">・現價 {fp(ctx['btc_price'])}・{"200 日均線之上" if ctx['btc_bull'] else "200 日均線之下"}</span></div>
 <p style="margin:4px 0 16px;font-weight:bold">{e(guide)}</p>
 <h3 style="font-size:16px;margin:0 0 8px">今日策略建議</h3>
-{cards}{watch_html}{link}
+{cards}{watch_html}{us_html(ctx.get("us"))}{link}
 <p style="font-size:12px;color:{MUTED};margin-top:20px">{e(bt_line)}<br>
 這是規則式工具的輸出，不是投資建議；回測代表過去，不保證未來。下單前請自行確認價格。</p></div>"""
 
@@ -145,6 +170,13 @@ def build_email(ctx, report_url=None):
         lines += ["", watch_title]
         lines += [f"  {sym[:-4]} {TF_NAME[w['tf']]} {'做多' if w['dir'] == 1 else '做空'} 收盤{'站上' if w['dir'] == 1 else '跌破'} {fp(w['trigger'])}（{w['dist']:+.2f}%）"
                   for sym, w in watch[:12]]
+    if ctx.get("us"):
+        lines += ["", "美股與商品觀察（未經回測驗證，僅供參考）"]
+        for x in ctx["us"]:
+            if x.get("error"):
+                lines.append(f"  {x['name']}：{x['error']}")
+                continue
+            lines.append(f"  {x['name']} {fp(x['price'])}（7日 {x['chg7']:+.1f}%）：{x['desc']}")
     if report_url:
         lines += ["", f"完整報告：{report_url}"]
     lines += ["", bt_line, "這是規則式工具的輸出，不是投資建議。"]

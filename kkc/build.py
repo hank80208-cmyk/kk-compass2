@@ -292,6 +292,14 @@ def build_context(an, cfg, cache, skipped, uni, log=print, with_backtest=True):
     btc = an["BTCUSDT"]["daily"].iloc[-1]
     btc_score = float(btc["score"])
     btb = run_backtest(an, cfg, log) if with_backtest else None
+    us = []
+    if cfg.get("watch_us", True):
+        log("  美股與商品觀察…")
+        try:
+            from . import stocks
+            us = stocks.analyze_all(cfg.get("watch_us_list"), log)
+        except Exception as e:  # noqa — 觀察清單失敗不影響主報告
+            log(f"  ! 美股觀察失敗：{e}")
     strategies = btb["strategies"] if btb else {}
     recs = {}
     for r in rows:
@@ -300,7 +308,7 @@ def build_context(an, cfg, cache, skipped, uni, log=print, with_backtest=True):
             p["funding"] = r["funding"]
         recs[r["symbol"]] = rec
         r["action"] = rec["action"]
-    return dict(now=now, now_tw=pd.Timestamp(now).tz_convert(TW).strftime("%Y-%m-%d %H:%M"),
+    return dict(now=now, now_tw=pd.Timestamp(now).tz_convert(TW).strftime("%Y-%m-%d %H:%M"), us=us,
                 btc_score=btc_score, btc_label=sg.score_label(btc_score),
                 btc_items={k: float(btc[k]) for k, *_ in sg.SCORE_ITEMS},
                 btc_bull=bool(btc["close"] > btc["ema200"]), btc_ema200=float(btc["ema200"]),
