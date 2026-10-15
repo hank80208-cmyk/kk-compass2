@@ -1,0 +1,104 @@
+# 在 GitHub 的免費主機上計算 KK Compass，結果推到 output 分支（state/*.json）。
+# Claude 的排程只負責讀 output 分支的 JSON 並寄信，不在雲端執行程式碼。
+name: KK Compass
+
+on:
+  schedule:
+    - cron: "20 23 * * *"   # 台北 07:20：每日完整版（加密貨幣＋美股）
+    - cron: "2 12 * * *"    # 台北 20:02：晚間 4H 短線掃描
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "daily 或 scan"
+        default: daily
+  push:
+    branches: [main]
+    paths: [".github/workflows/compass.yml"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compass
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 決定模式
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then m="${{ github.event.inputs.mode }}";
+          elif [ "${{ github.event.schedule }}" = "2 12 * * *" ]; then m=scan;
+          else m=daily; fi
+          echo "mode=$m" >> "$GITHUB_OUTPUT"
+          echo "模式：$m"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -q -r requirements.txt
+
+      - name: 還原行情快取
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: kkc-cache-${{ github.run_id }}
+          restore-keys: kkc-cache-
+
+      - name: 取回上次結果
+        run: |
+          mkdir -p state
+          if git fetch -q origin output 2>/dev/null; then
+            git show FETCH_HEAD:state/strategies.json > state/strategies.json 2>/dev/null || rm -f state/strategies.json
+          fi
+
+      - name: 執行
+        id: run
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          if [ "${{ steps.mode.outputs.mode }}" = "scan" ]; then
+            python run.py scan 2>&1 | tee run.log
+          else
+            python run.py daily --no-notify 2>&1 | tee run.log
+          fi
+
+      - name: 推送結果到 output 分支
+        if: always()
+        env:
+          MODE: ${{ steps.mode.outputs.mode }}
+          OK: ${{ steps.run.outcome }}
+          URL: https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+        run: |
+          set -e
+          W="$GITHUB_WORKSPACE"
+          cd "$RUNNER_TEMP" && rm -rf ob
+          if git clone -q --depth 3 -b output "$URL" ob 2>/dev/null; then cd ob
+          else mkdir ob && cd ob && git init -q -b output && git remote add origin "$URL"; fi
+          git config user.name "kk-compass-bot"
+          git config user.email "kk-compass-bot@users.noreply.github.com"
+          mkdir -p state
+          if [ "$OK" = "success" ]; then
+            if [ "$MODE" = "scan" ]; then cp "$W/state/scan_email.json" state/
+            else cp "$W/state/email.json" "$W/state/strategies.json" state/; fi
+          fi
+          tail -n 40 "$W/run.log" > "state/last_${MODE}.log" 2>/dev/null || echo "沒有輸出" > "state/last_${MODE}.log"
+          python - <<'PY'
+          import json, os, datetime
+          p = "state/status.json"
+          s = json.load(open(p)) if os.path.exists(p) else {}
+          now = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8)))
+          s[os.environ["MODE"]] = dict(ok=os.environ["OK"] == "success", date=now.strftime("%Y-%m-%d"),
+                                       time=now.strftime("%Y-%m-%d %H:%M"))
+          json.dump(s, open(p, "w"), ensure_ascii=False, indent=1)
+          PY
+          git add state
+          git commit -qm "$MODE $(date -u +'%F %H:%M') $OK" || true
+          git push -q origin output
