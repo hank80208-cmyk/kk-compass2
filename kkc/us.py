@@ -66,7 +66,7 @@ def run(sym, D, key):
         start = int(s["time"].value // 1_000_000)
         if start <= busy:
             continue
-        res = bt.simulate(om, o, h, l, c, start, 1, s["stop"], st["exit"], line, st["max_hold"], 24)
+        res = bt.simulate(om, o, h, l, c, start, 1, s["stop"], st["exit"], line, st["max_hold"], 24, next_open=True)
         if res is None:
             continue
         busy = res["exit_time"]
@@ -80,12 +80,48 @@ def plan(sym, D, s, key, risk_per_trade):
     st = STRATS[key]
     e = s["close"]
     risk_pct = (e - s["stop"]) / e * 100
-    tp = {"revert": f"收盤站上 5 日均線（目前 {D['sma5'].iloc[-1]:,.2f}）就出場，最長 10 個交易日",
-          "trail": f"收盤跌破 EMA20（目前 {D['ema20'].iloc[-1]:,.2f}）出場，最長 60 個交易日",
-          "trail50": f"收盤跌破 EMA50（目前 {D['ema50'].iloc[-1]:,.2f}）出場，最長 120 個交易日"}[st["exit"]]
+    tp = {"revert": "哪天收盤站上 5 日均線，隔天開盤賣（信會提醒）；最長 10 個交易日",
+          "trail": "哪天收盤跌破 20 日 EMA，隔天開盤賣（信會提醒）；最長 60 個交易日",
+          "trail50": "哪天收盤跌破 50 日 EMA，隔天開盤賣（信會提醒）；最長 120 個交易日"}[st["exit"]]
     return dict(symbol=sym, strat=key, strat_name=st["name"], date=s["time"].tz_convert("America/New_York").strftime("%m-%d"),
                 entry=e, stop=s["stop"], risk_pct=risk_pct, tp_text=tp,
-                position_x=(risk_per_trade / risk_pct) if risk_pct > 0 else None, risk_per_trade=risk_per_trade)
+                position_x=(risk_per_trade / risk_pct) if risk_pct > 0 else None, risk_per_trade=risk_per_trade,
+                ext=float(D["close"].iloc[s["i"]] / D["sma200"].iloc[s["i"]] - 1))
+
+
+def _walk(D, key, x):
+    """假設訊號隔天開盤買進，走到最新收盤。回傳 (出場判定的 K 棒 j 或 None, 原因)。"""
+    st = STRATS[key]
+    low, c, line = D["low"].values, D["close"].values, D[st["line"]].values
+    for j in range(x["i"] + 1, len(D)):
+        if low[j] <= x["stop"]:
+            return j, "stopped"
+        if ((c[j] > line[j]) if st["exit"] == "revert" else (c[j] < line[j])):
+            return j, "sell"
+        if j - x["i"] >= st["max_hold"]:
+            return j, "time"
+    return None, "hold"
+
+
+def picks(D_by_sym, key, since):
+    """從 since（UTC 時間）起，照策略規則會進場的訊號：同一檔持倉中不重複進場；
+    同一天觸發太多時依「離 200 日均線最遠」挑前 PICK_N 檔。回傳 [(sym, x, 出場 j, 原因)]。"""
+    cand = []
+    for sym, D in D_by_sym.items():
+        busy = -1
+        for x in signals(D, key):
+            if D.index[x["i"]] < since or x["i"] <= busy:
+                continue
+            j, why = _walk(D, key, x)
+            busy = j if j is not None else len(D)
+            cand.append((D.index[x["i"]], -float(D["close"].iloc[x["i"]] / D["sma200"].iloc[x["i"]]), sym, x, j, why))
+    cand.sort(key=lambda r: (r[0], r[1]))
+    out, cnt = [], {}
+    for day, _, sym, x, j, why in cand:
+        cnt[day] = cnt.get(day, 0) + 1
+        if cnt[day] <= PICK_N[key]:
+            out.append((sym, x, j, why))
+    return out
 
 
 # ====================================================================== 每日掃描
@@ -94,7 +130,8 @@ UNIVERSE = ["QQQ", "SPY", "MSTR", "MU", "TSM", "NVDA", "PLTR", "SNDK", "AAPL", "
             "ASML", "COIN", "SHOP", "UBER", "NOW", "PANW", "MRVL", "WDC", "SMCI", "ARM"]
 LIVE = ["S2", "S1"]          # 通過驗證、會給進場計畫的策略（S3 與隨機一樣，不給）
 RISK = {"S2": 0.5, "S1": 0.25}  # 每筆虧損占本金 %，依回測最大回撤換算（目標約 20%）
-RANDOM_REF = {"S2": dict(all=0.042, oos=0.110), "S1": dict(all=-0.007, oos=-0.001)}  # 隨機對照（研究結果）
+RANDOM_REF = {"S2": dict(all=0.106, oos=0.238), "S1": dict(all=-0.013, oos=0.014)}  # 隨機對照（同條件、隔日開盤出場）
+PICK_N = {"S1": 3, "S2": 5}  # 同一天觸發太多時只挑前幾檔：依「離 200 日均線最遠」（長期趨勢最強）排序，回測較佳
 
 
 def scan(cfg=None, log=print, universe=None):
@@ -128,21 +165,40 @@ def scan(cfg=None, log=print, universe=None):
             t = T[T["strat"] == key]
             ins, oos = bt.split_time(t, cut)
             stats[key] = dict(all=bt.stats(t), oos=bt.stats(oos), random=RANDOM_REF[key])
-    sigs = []
-    for sym, D in feats.items():
-        if D.index[-1] != last_day:   # 停牌或資料落後
-            continue
-        for key in LIVE:
-            if bool(D[{"S1": "s1", "S2": "s2"}[key]].iloc[-1]):
+    sigs, holds = [], []
+    live = {s: D for s, D in feats.items() if D.index[-1] == last_day}  # 排除停牌或資料落後
+    since = pd.Timestamp((cfg or {}).get("us_track_from", "2026-10-14"), tz="UTC")
+    line_name = {"sma5": "5 日均線", "ema20": "20 日 EMA", "ema50": "50 日 EMA"}
+    for key in LIVE:
+        chosen = set()
+        for sym, x, j, why in picks(live, key, since):
+            D = live[sym]
+            last = len(D) - 1
+            if x["i"] == last:   # 昨天收盤的新訊號：今晚買
+                p = plan(sym, D, x, key, RISK[key])
+                p.update(hist=stats.get(key, {}).get("all"), hist_oos=stats.get(key, {}).get("oos"), pick=True,
+                         score=float(D["score"].iloc[-1]) if np.isfinite(D["score"].iloc[-1]) else None)
+                sigs.append(p)
+                chosen.add(sym)
+                continue
+            if j is not None and j < last:
+                continue   # 之前就出場了
+            h = dict(symbol=sym, strat=key, strat_name=STRATS[key]["name"], stop=x["stop"], close=float(D["close"].iloc[-1]),
+                     date=x["time"].tz_convert("America/New_York").strftime("%m-%d"), held=last - x["i"],
+                     line=float(D[STRATS[key]["line"]].iloc[-1]), line_name=line_name[STRATS[key]["line"]])
+            h["state"] = {"stopped": "stopped", "sell": "sell", "time": "sell", "hold": "hold"}[why]
+            h["why"] = {"sell": f"收盤{'站上' if key == 'S1' else '跌破'}{h['line_name']}", "time": "持有天數到上限"}.get(why, "")
+            holds.append(h)
+        for sym, D in live.items():   # 有觸發但沒被挑中（或已持有）的，列出但不建議
+            if sym not in chosen and bool(D[{"S1": "s1", "S2": "s2"}[key]].iloc[-1]):
                 s = [x for x in signals(D, key) if x["i"] == len(D) - 1]
                 if s:
                     p = plan(sym, D, s[0], key, RISK[key])
-                    p["hist"] = stats.get(key, {}).get("all")
-                    p["hist_oos"] = stats.get(key, {}).get("oos")
-                    p["score"] = float(D["score"].iloc[-1]) if np.isfinite(D["score"].iloc[-1]) else None
+                    p["pick"] = False
                     sigs.append(p)
-    sigs.sort(key=lambda p: (LIVE.index(p["strat"]), p["symbol"]))
+    sigs.sort(key=lambda p: (LIVE.index(p["strat"]), not p["pick"], -p["ext"]))
+    holds.sort(key=lambda h: ({"sell": 0, "stopped": 1, "hold": 2}[h["state"]], h["symbol"]))
     return dict(date=last_day.tz_convert("America/New_York").strftime("%Y-%m-%d"),
                 qqq=dict(price=float(q["close"]), sma200=float(q["sma200"]), score=float(q["score"]),
                          label=sg.score_label(q["score"]), up=bool(q["close"] > q["sma200"])),
-                signals=sigs, stats=stats, n=len(feats), fail=fail)
+                signals=sigs, holds=holds, stats=stats, n=len(feats), fail=fail)

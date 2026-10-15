@@ -46,8 +46,11 @@ def variant_name(v):
 
 
 def simulate(om, o, h, l, c, start_ms, d, stop, exit_key, trail=None, max_hold=168,
-             hours_per_bar=1, cost=COST):
-    """從 start_ms 之後第一根 K 棒開盤市價進場。回傳 dict 或 None。"""
+             hours_per_bar=1, cost=COST, next_open=False):
+    """從 start_ms 之後第一根 K 棒開盤市價進場。回傳 dict 或 None。
+
+    next_open=True：均線出場條件（revert／trail）在收盤成立後，改在下一根開盤市價賣（美股適用，不用盯收盤）。
+    """
     i0 = int(np.searchsorted(om, start_ms, side="left"))
     n = len(o)
     if i0 >= n:
@@ -66,6 +69,7 @@ def simulate(om, o, h, l, c, start_ms, d, stop, exit_key, trail=None, max_hold=1
     cur_stop = stop
     reason, j = None, i0
     t1_done = False
+    jx = None  # 下一根開盤出場時的實際出場 K 棒
     for j in range(i0, end):
         hit_stop = (l[j] <= cur_stop) if d == 1 else (h[j] >= cur_stop)
         if hit_stop:
@@ -101,7 +105,11 @@ def simulate(om, o, h, l, c, start_ms, d, stop, exit_key, trail=None, max_hold=1
         elif ex["kind"] == "revert" and trail is not None:
             tv = trail[j]
             if np.isfinite(tv) and ((c[j] > tv) if d == 1 else (c[j] < tv)):
-                px = c[j] * (1 - d * cost["slip"])
+                if next_open and j + 1 < n:
+                    jx = j + 1
+                    px = o[jx] * (1 - d * cost["slip"])
+                else:
+                    px = c[j] * (1 - d * cost["slip"])
                 pnl += pos * (px - entry) / entry * d
                 fees += pos * cost["taker"]
                 pos, reason = 0, "目標"
@@ -109,7 +117,11 @@ def simulate(om, o, h, l, c, start_ms, d, stop, exit_key, trail=None, max_hold=1
         elif ex["kind"] == "trail" and trail is not None and j > i0:
             tv = trail[j]
             if np.isfinite(tv) and ((c[j] < tv) if d == 1 else (c[j] > tv)):
-                px = c[j] * (1 - d * cost["slip"])
+                if next_open and j + 1 < n:
+                    jx = j + 1
+                    px = o[jx] * (1 - d * cost["slip"])
+                else:
+                    px = c[j] * (1 - d * cost["slip"])
                 pnl += pos * (px - entry) / entry * d
                 fees += pos * cost["taker"]
                 pos, reason = 0, "移動出場"
@@ -119,6 +131,8 @@ def simulate(om, o, h, l, c, start_ms, d, stop, exit_key, trail=None, max_hold=1
         pnl += pos * (px - entry) / entry * d
         fees += pos * cost["taker"]
         reason = "時間出場"
+    if jx is not None:
+        j = jx
     bars = j - i0 + 1
     fund = -d * cost["funding_per_hour"] * bars * hours_per_bar
     net = pnl - fees + fund
