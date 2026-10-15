@@ -83,44 +83,65 @@ def cmd_daily(artifact=False, notify_on=True):
     return ctx, an
 
 
+def load_strategies():
+    """回測結果：優先用今天 daily 算的；雲端新環境沒有時，用程式庫內的快照。"""
+    for path in (os.path.join(STATE, "strategies.json"), os.path.join(ROOT, "strategies_snapshot.json")):
+        try:
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)["strategies"]
+        except (OSError, ValueError, KeyError):
+            continue
+    return None
+
+
 def cmd_scan():
-    """只看最新收盤的 4H（以及剛收盤的日線），有回測支持的新進場就通知。"""
+    """輕量掃描：只看最近兩根已收盤的 4H，有回測支持的 A/B 級新訊號才產生通知信。
+
+    結果寫到 state/scan_email.json：{"send": true/false, "subject", "html", "text"}。
+    """
     cfg = load_cfg()
     cfg.update(days_daily=600, days_4h=120, days_1h=10)
-    an, _, _ = build.load_and_analyze(cfg, CACHE, log=lambda *a: None)
-    try:
-        with open(os.path.join(STATE, "strategies.json"), encoding="utf-8") as f:
-            strategies = json.load(f)["strategies"]
-    except (OSError, ValueError, KeyError):
-        log("找不到回測結果，請先跑一次 daily")
+    os.makedirs(STATE, exist_ok=True)
+    out_path = os.path.join(STATE, "scan_email.json")
+    strategies = load_strategies()
+    if not strategies:
+        log("找不到回測結果（strategies.json / strategies_snapshot.json）")
         return
-    funding = build.funding_info(an, {**cfg, "funding_days": 7}, CACHE, log=log)
-    sent_path = os.path.join(STATE, "sent.json")
-    sent = notify.load_sent(sent_path)
-    new = 0
+    an, _, _ = build.load_and_analyze(cfg, CACHE, log=lambda *a: None)
+    funding = build.funding_info(an, {**cfg, "funding_days": 7}, CACHE, log=lambda *a: None)
+    st = strategies["4h"]
+    plans = []
     for sym, a in an.items():
-        for key, tf, n in (("setups", "4h", len(a["h4"])), ("dsetups", "1d", len(a["daily"]))):
-            for s in a[key]:
-                if s["t"] < n - 2:
-                    continue
-                k = f"{sym}|{tf}|{s['dir']}|{s['time']}"
-                if k in sent:
-                    continue
-                sent.add(k)
-                st = strategies.get(tf)
-                if s["grade"] not in cfg["notify_grades"] or not st:
-                    continue
-                ok, h_all, h_oos = build.strat_ok(st, s["grade"], s["dir"])
-                if not ok:
-                    continue
-                p = build.setup_plan(s, cfg, st)
-                p.update(symbol=sym, funding=funding.get(sym), hist=h_all, hist_oos=h_oos,
-                         hold_med=st["grades"][s["grade"]]["all"].get("med_hours"),
-                         streak=st["grades"][s["grade"]]["all"].get("max_losing_streak"))
-                notify.send(cfg, notify.format_plan(p, cfg.get("report_url")), log)
-                new += 1
-    notify.save_sent(sent_path, sent)
-    log(f"掃描完成：新訊號 {new} 筆")
+        n = len(a["h4"])
+        price = float(a["h1"]["close"].iloc[-1])
+        for s in a["setups"]:
+            if s["t"] < n - 2 or s["grade"] not in cfg["notify_grades"]:
+                continue
+            ok, h_all, h_oos = build.strat_ok(st, s["grade"], s["dir"])
+            if not ok:
+                continue
+            p = build.setup_plan(s, cfg, st)
+            if (price - p["stop"]) * s["dir"] <= 0:  # 已經打到停損就不通知
+                continue
+            p.update(symbol=sym, funding=funding.get(sym), hist=h_all, hist_oos=h_oos, ok=True,
+                     hold_med=st["grades"][s["grade"]]["all"].get("med_hours"),
+                     streak=st["grades"][s["grade"]]["all"].get("max_losing_streak"),
+                     strat_name=st["best_name"], price_now=price,
+                     moved_r=(price - p["entry"]) * s["dir"] / abs(p["entry"] - p["stop"]))
+            plans.append(p)
+    btc = an["BTCUSDT"]["daily"]["score"].iloc[-1]
+    plans.sort(key=lambda p: (p["grade"], p["symbol"]))
+    if plans:
+        subject, html_body, text_body = emailer.build_scan_email(plans, float(btc), cfg)
+        result = dict(send=True, subject=subject, html=html_body, text=text_body)
+        if cfg.get("telegram_bot_token"):
+            for p in plans:
+                notify.send(cfg, notify.format_plan(p), log)
+    else:
+        result = dict(send=False)
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False)
+    log(f"掃描完成：BTC {btc:+.0f}，新訊號 {len(plans)} 筆 → {out_path}")
 
 
 if __name__ == "__main__":

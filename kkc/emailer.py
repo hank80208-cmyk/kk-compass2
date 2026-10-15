@@ -149,3 +149,39 @@ def build_email(ctx, report_url=None):
         lines += ["", f"完整報告：{report_url}"]
     lines += ["", bt_line, "這是規則式工具的輸出，不是投資建議。"]
     return subject, html_body, "\n".join(lines)
+
+
+def build_scan_email(plans, btc_score, cfg):
+    """晚間 4H 掃描：只在有新訊號時寄。"""
+    from datetime import datetime, timedelta, timezone
+    now = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M")
+    names = "、".join(f"{p['symbol'][:-4]}{'多' if p['dir'] == 1 else '空'}" for p in plans[:4]) + ("…" if len(plans) > 4 else "")
+    subject = f"KK Compass 短線訊號 {now[5:]}｜{names}"
+    td = f'style="padding:4px 10px 4px 0;color:{MUTED};vertical-align:top;white-space:nowrap"'
+    tv = f'style="padding:4px 0;color:{INK};font-family:Menlo,Consolas,monospace"'
+    cards, lines = "", [f"KK Compass 短線（4H）訊號・{now}（台北）", f"BTC 日線方向 {btc_score:+.0f}", ""]
+    for p in plans:
+        col = LONG if p["dir"] == 1 else SHORT
+        act = "做多" if p["dir"] == 1 else "做空"
+        rows = plan_rows(p) + [("現價", f"{fp(p['price_now'])}（離確認價 {p['moved_r']:+.1f}R）")]
+        chase = ""
+        if p["moved_r"] > 1:
+            chase = "價格已經離確認價超過 1R，追價的盈虧比變差，建議等回踩或放棄。"
+        cards += (f'<div style="border:1px solid {LINE};border-left:5px solid {col};border-radius:6px;padding:12px 16px;margin:0 0 12px">'
+                  f'<div style="font-size:20px;font-weight:bold;color:{col}">{e(p["symbol"][:-4])}　{act}'
+                  f'<span style="font-size:13px;color:{INK};font-weight:normal">　{e(p["grade"])} 級・短線（4H）・確認 {e(p["time"])}</span></div>'
+                  f'<table style="border-collapse:collapse;font-size:14px;margin-top:8px">'
+                  + "".join(f"<tr><td {td}>{e(k)}</td><td {tv}>{e(v)}</td></tr>" for k, v in rows)
+                  + "</table>" + (f'<p style="margin:6px 0 0;color:{ACC};font-weight:bold">{e(chase)}</p>' if chase else "") + "</div>")
+        lines.append(f"{p['symbol'][:-4]} {act}｜{p['grade']} 級・短線（4H）・確認 {p['time']}")
+        lines += [f"  {k}：{v}" for k, v in rows]
+        if chase:
+            lines.append("  " + chase)
+        lines.append("")
+    html_body = (f'<div style="font-family:-apple-system,\'PingFang TC\',\'Microsoft JhengHei\',sans-serif;color:{INK};max-width:640px;line-height:1.6">'
+                 f'<div style="font-size:13px;color:{MUTED}">KK Compass 短線（4H）訊號・{e(now)}（台北）・BTC 日線方向 {btc_score:+.0f}</div>'
+                 f'<h3 style="font-size:16px;margin:10px 0 8px">新的進場訊號</h3>{cards}'
+                 f'<p style="font-size:12px;color:{MUTED}">短線最長持有 7 天；回測中短線優勢比波段薄、連虧可以很長，請照建議倉位。'
+                 f'這是規則式工具的輸出，不是投資建議；下單前請在 Bybit 確認價格。</p></div>')
+    lines.append("短線最長持有 7 天；請照建議倉位。這是規則式工具的輸出，不是投資建議。")
+    return subject, html_body, "\n".join(lines)
