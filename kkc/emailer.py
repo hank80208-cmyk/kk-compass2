@@ -51,6 +51,81 @@ def plan_rows(p):
     return rows
 
 
+def _usp_rows(p):
+    px = p.get("position_x")
+    pos = (f"本金的 {px * 100:.0f}%" if px and px < 1 else f"本金的 {px:.1f} 倍" if px else "—")
+    h, o = p.get("hist") or {}, p.get("hist_oos") or {}
+    rows = [("進場", f"美股開盤市價買進（參考昨收 {fp(p['entry'])}）"),
+            ("停損", f"{fp(p['stop'])}（距昨收 {p['risk_pct']:.1f}%）"),
+            ("出場", p["tp_text"]),
+            ("建議倉位", f"{pos}（停損時虧本金 {p['risk_per_trade']:g}%）")]
+    if h.get("n"):
+        rows.append(("回測", f"20 年 {h['n']} 筆，勝率 {h['win']:.0f}%，平均 {h['avg_r']:+.2f}R（樣本外 {o.get('avg_r', 0):+.2f}R）"))
+    return rows
+
+
+def usm_html(usm):
+    """美股區：QQQ 大盤＋通過驗證的策略訊號。"""
+    if not usm:
+        return f'<p style="color:{MUTED}">今天沒有美股資料。</p>'
+    if usm.get("error"):
+        return f'<p style="color:{SHORT}">{e(usm["error"])}</p>'
+    q = usm["qqq"]
+    qcol = LONG if q["score"] >= 2 else SHORT if q["score"] <= -2 else MUTED
+    head = (f'<div style="font-size:15px;margin:8px 0 2px">QQQ 日線方向 <b style="font-size:26px;color:{qcol}">{q["score"]:+.0f}</b> {e(q["label"])}'
+            f'<span style="color:{MUTED}">・{fp(q["price"])}・{"200 日均線之上" if q["up"] else "200 日均線之下"}・資料日 {e(usm["date"])}（美東）</span></div>')
+    td = f'style="padding:4px 10px 4px 0;color:{MUTED};vertical-align:top;white-space:nowrap"'
+    tv = f'style="padding:4px 0;color:{INK};font-family:Menlo,Consolas,monospace"'
+    s2 = [x for x in usm["signals"] if x["strat"] == "S2"]
+    s1 = [x for x in usm["signals"] if x["strat"] == "S1"]
+    cards = ""
+    for p in s2:
+        rows = "".join(f"<tr><td {td}>{e(k)}</td><td {tv}>{e(v)}</td></tr>" for k, v in _usp_rows(p))
+        cards += (f'<div style="border:1px solid {LINE};border-left:5px solid {LONG};border-radius:6px;padding:12px 16px;margin:0 0 12px">'
+                  f'<div style="font-size:20px;font-weight:bold;color:{LONG}">{e(p["symbol"])}　做多'
+                  f'<span style="font-size:13px;color:{INK};font-weight:normal">　新高突破・{e(p["date"])} 收盤確認</span></div>'
+                  f'<table style="border-collapse:collapse;font-size:14px;margin-top:8px">{rows}</table></div>')
+    st = usm.get("stats", {})
+    a2 = st.get("S2", {}).get("all", {})
+    body = (f'<h3 style="font-size:16px;margin:12px 0 6px">新高突破（主力策略）</h3>'
+            + (cards or f'<p style="color:{MUTED};margin:0">昨天沒有股票觸發。</p>')
+            + (f'<p style="font-size:12px;color:{MUTED};margin:4px 0 0">收盤創一年新高、放量、在 200 日均線之上。20 年 {a2.get("n", 0)} 筆，'
+               f'平均 {a2.get("avg_r", 0):+.2f}R（同條件隨機進場約 +0.04R），勝率約 35%，靠大賺的少數幾筆獲利。</p>' if a2.get("n") else ""))
+    if s1:
+        rows = "".join(
+            f'<tr style="border-top:1px solid {LINE}"><td style="padding:4px 10px 4px 0"><b>{e(p["symbol"])}</b></td>'
+            f'<td style="padding:4px 10px 4px 0;font-family:Menlo,Consolas,monospace">{fp(p["entry"])}</td>'
+            f'<td style="padding:4px 10px 4px 0;font-family:Menlo,Consolas,monospace">停損 {fp(p["stop"])}（{p["risk_pct"]:.0f}%）</td>'
+            f'<td style="padding:4px 0;font-size:12px">站上 5 日均線出場</td></tr>' for p in s1)
+        a1 = st.get("S1", {}).get("all", {})
+        warn = ("今天同時觸發很多檔，代表大盤整體急跌，這些幾乎是同一個賭注，最多挑 2～3 檔。" if len(s1) >= 5 else "")
+        body += (f'<h3 style="font-size:16px;margin:18px 0 6px">多頭回檔候選（高勝率、小獲利）</h3>'
+                 f'<table style="border-collapse:collapse;font-size:13px;width:100%">{rows}</table>'
+                 f'<p style="font-size:12px;color:{MUTED};margin:4px 0 0">長期多頭裡短線急跌（RSI2 &lt; 10）。勝率約 {a1.get("win", 65):.0f}%，'
+                 f'但每筆平均只有 {a1.get("avg_r", 0):+.2f}R，屬於小賺型；建議每筆只用本金 0.25% 風險。{e(warn)}</p>')
+    return head + body + (f'<p style="font-size:12px;color:{MUTED};margin:8px 0 0">美股只做多：20 年回測顯示股票做空長期虧損。'
+                          f'訊號用前一個美股交易日收盤判斷，台北晚上美股開盤時進場。</p>')
+
+
+def usm_text(usm):
+    if not usm:
+        return ["今天沒有美股資料。"]
+    if usm.get("error"):
+        return [usm["error"]]
+    q = usm["qqq"]
+    out = [f"QQQ 日線方向 {q['score']:+.0f} {q['label']}・{fp(q['price'])}・{'200 日均線之上' if q['up'] else '200 日均線之下'}（資料日 {usm['date']} 美東）"]
+    s2 = [x for x in usm["signals"] if x["strat"] == "S2"]
+    s1 = [x for x in usm["signals"] if x["strat"] == "S1"]
+    out.append("新高突破（主力）：" + ("昨天沒有股票觸發" if not s2 else ""))
+    for p in s2:
+        out.append(f"  {p['symbol']} 做多")
+        out += [f"    {k}：{v}" for k, v in _usp_rows(p)]
+    if s1:
+        out.append(f"多頭回檔候選（高勝率、小獲利，最多挑 2～3 檔）：")
+        out += [f"  {p['symbol']} 昨收 {fp(p['entry'])}，停損 {fp(p['stop'])}（{p['risk_pct']:.0f}%），站上 5 日均線出場" for p in s1]
+    return out
+
+
 def us_html(us):
     """美股與商品觀察表。只描述狀態，不給建議。"""
     if not us:
@@ -69,7 +144,7 @@ def us_html(us):
                  f'<td style="padding:6px 10px 6px 0;vertical-align:top;color:{col};white-space:nowrap">'
                  f'{(f"{sc:+.0f}" if sc is not None else "—")}</td>'
                  f'<td style="padding:6px 0;vertical-align:top;font-size:13px">{e(x["desc"])}</td></tr>')
-    return (f'<h3 style="font-size:16px;margin:22px 0 4px">美股與商品觀察</h3>'
+    return (f'<h3 style="font-size:16px;margin:22px 0 4px">觀察清單狀態（含商品）</h3>'
             f'<p style="margin:0 0 6px;font-size:12px;color:{MUTED}">報價為 Hyperliquid 股票／商品永續合約。'
             f'20 年回測顯示：結構訊號在美股與商品上沒有勝過隨機進場，股票做空長期平均虧損，'
             f'所以這裡只描述狀態與環境，不給進場建議。</p>'
@@ -85,10 +160,22 @@ def build_email(ctx, report_url=None):
     strong = ctx["cfg"]["btc_strong_score"]
     date = ctx["now_tw"][:10]
     if acts:
-        subject = f"KK Compass {date}｜{len(acts)} 檔建議：" + "、".join(
-            f"{r['symbol'][:-4]}{'多' if r['main']['dir'] == 1 else '空'}" for r in acts[:4]) + ("…" if len(acts) > 4 else "")
+        c_part = f"幣 {len(acts)} 檔：" + "、".join(
+            f"{r['symbol'][:-4]}{'多' if r['main']['dir'] == 1 else '空'}" for r in acts[:3]) + ("…" if len(acts) > 3 else "")
     else:
-        subject = f"KK Compass {date}｜觀望（BTC {s:+.0f} {ctx['btc_label']}）"
+        c_part = f"幣 觀望（BTC {s:+.0f}）"
+    usm = ctx.get("usm") or {}
+    s2 = [x for x in usm.get("signals", []) if x["strat"] == "S2"]
+    s1 = [x for x in usm.get("signals", []) if x["strat"] == "S1"]
+    if usm.get("error"):
+        u_part = "美股 資料錯誤"
+    elif s2:
+        u_part = "美股 突破：" + "、".join(x["symbol"] for x in s2[:3]) + ("…" if len(s2) > 3 else "")
+    elif s1:
+        u_part = f"美股 回檔候選 {len(s1)} 檔"
+    else:
+        u_part = "美股 無訊號"
+    subject = f"KK Compass {date}｜{c_part}｜{u_part}"
     if s >= strong:
         guide = "BTC 多頭明確：只考慮做多。"
     elif s <= -strong:
@@ -147,16 +234,19 @@ def build_email(ctx, report_url=None):
     btc_col = LONG if s > 0 else SHORT if s < 0 else MUTED
     html_body = f"""<div style="font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;color:{INK};max-width:640px;line-height:1.6">
 <div style="font-size:13px;color:{MUTED}">KK Compass 2・{e(ctx['now_tw'])}（台北）</div>
+<h2 style="font-size:20px;margin:14px 0 4px;padding:6px 10px;background:#f3e3c3;color:{INK};border-radius:4px">₿ 加密貨幣區</h2>
 <div style="font-size:15px;margin:8px 0 2px">BTC 日線方向 <b style="font-size:26px;color:{btc_col}">{s:+.0f}</b> {e(ctx['btc_label'])}
 <span style="color:{MUTED}">・現價 {fp(ctx['btc_price'])}・{"200 日均線之上" if ctx['btc_bull'] else "200 日均線之下"}</span></div>
 <p style="margin:4px 0 16px;font-weight:bold">{e(guide)}</p>
 <h3 style="font-size:16px;margin:0 0 8px">今日策略建議</h3>
-{cards}{watch_html}{us_html(ctx.get("us"))}{link}
+{cards}{watch_html}
+<h2 style="font-size:20px;margin:26px 0 4px;padding:6px 10px;background:#dfe8f1;color:{INK};border-radius:4px">🇺🇸 美股區</h2>
+{usm_html(usm)}{us_html(ctx.get("us"))}{link}
 <p style="font-size:12px;color:{MUTED};margin-top:20px">{e(bt_line)}<br>
 這是規則式工具的輸出，不是投資建議；回測代表過去，不保證未來。下單前請自行確認價格。</p></div>"""
 
     # ---------------- 純文字
-    lines = [f"KK Compass 2・{ctx['now_tw']}（台北）",
+    lines = [f"KK Compass 2・{ctx['now_tw']}（台北）", "", "【加密貨幣區】",
              f"BTC 日線方向 {s:+.0f} {ctx['btc_label']}・現價 {fp(ctx['btc_price'])}", guide, "", "今日策略建議"]
     if acts:
         for r in acts:
@@ -171,8 +261,9 @@ def build_email(ctx, report_url=None):
         lines += ["", watch_title]
         lines += [f"  {sym[:-4]} {TF_NAME[w['tf']]} {'做多' if w['dir'] == 1 else '做空'} 收盤{'站上' if w['dir'] == 1 else '跌破'} {fp(w['trigger'])}（{w['dist']:+.2f}%）"
                   for sym, w in watch[:12]]
+    lines += ["", "【美股區】"] + usm_text(usm)
     if ctx.get("us"):
-        lines += ["", "美股與商品觀察（未經回測驗證，僅供參考）"]
+        lines += ["", "觀察清單狀態（Hyperliquid 報價）"]
         for x in ctx["us"]:
             if x.get("error"):
                 lines.append(f"  {x['name']}：{x['error']}")

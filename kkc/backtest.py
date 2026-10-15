@@ -23,6 +23,9 @@ EXITS = {
     "fixed3": dict(kind="fixed", r=3.0, name="固定 3R 止盈"),
     "scale": dict(kind="scale", r1=2.0, r2=4.0, name="2R 先平一半、停損移到成本、剩下 4R"),
     "trail": dict(kind="trail", name="跟著 EMA20 移動出場（收盤跌破/站上 EMA20 出場）"),
+    # 美股用
+    "revert": dict(kind="revert", name="反彈收盤站上 5 日均線出場"),
+    "trail50": dict(kind="trail", name="收盤跌破 EMA50 出場"),
 }
 
 TF = {
@@ -95,6 +98,14 @@ def simulate(om, o, h, l, c, start_ms, d, stop, exit_key, trail=None, max_hold=1
                     fees += pos * cost["maker"]
                     pos, reason = 0, "目標"
                     break
+        elif ex["kind"] == "revert" and trail is not None:
+            tv = trail[j]
+            if np.isfinite(tv) and ((c[j] > tv) if d == 1 else (c[j] < tv)):
+                px = c[j] * (1 - d * cost["slip"])
+                pnl += pos * (px - entry) / entry * d
+                fees += pos * cost["taker"]
+                pos, reason = 0, "目標"
+                break
         elif ex["kind"] == "trail" and trail is not None and j > i0:
             tv = trail[j]
             if np.isfinite(tv) and ((c[j] < tv) if d == 1 else (c[j] > tv)):

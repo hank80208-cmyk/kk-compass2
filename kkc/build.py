@@ -292,6 +292,14 @@ def build_context(an, cfg, cache, skipped, uni, log=print, with_backtest=True):
     btc = an["BTCUSDT"]["daily"].iloc[-1]
     btc_score = float(btc["score"])
     btb = run_backtest(an, cfg, log) if with_backtest else None
+    usm = None
+    if cfg.get("us_section", True):
+        log("  美股區掃描…")
+        try:
+            from . import us as usmod
+            usm = usmod.scan(cfg, log)
+        except Exception as e:  # noqa
+            usm = dict(error=f"美股掃描失敗：{e}")
     us = []
     if cfg.get("watch_us", True):
         log("  美股與商品觀察…")
@@ -308,7 +316,7 @@ def build_context(an, cfg, cache, skipped, uni, log=print, with_backtest=True):
             p["funding"] = r["funding"]
         recs[r["symbol"]] = rec
         r["action"] = rec["action"]
-    return dict(now=now, now_tw=pd.Timestamp(now).tz_convert(TW).strftime("%Y-%m-%d %H:%M"), us=us,
+    return dict(now=now, now_tw=pd.Timestamp(now).tz_convert(TW).strftime("%Y-%m-%d %H:%M"), us=us, usm=usm,
                 btc_score=btc_score, btc_label=sg.score_label(btc_score),
                 btc_items={k: float(btc[k]) for k, *_ in sg.SCORE_ITEMS},
                 btc_bull=bool(btc["close"] > btc["ema200"]), btc_ema200=float(btc["ema200"]),
