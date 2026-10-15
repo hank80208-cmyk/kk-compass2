@@ -70,8 +70,9 @@ def us_html(us):
                  f'{(f"{sc:+.0f}" if sc is not None else "—")}</td>'
                  f'<td style="padding:6px 0;vertical-align:top;font-size:13px">{e(x["desc"])}</td></tr>')
     return (f'<h3 style="font-size:16px;margin:22px 0 4px">美股與商品觀察</h3>'
-            f'<p style="margin:0 0 6px;font-size:12px;color:{MUTED}">報價為 Hyperliquid 股票／商品永續合約。這些市場上線不到一年，'
-            f'加密貨幣的回測證據不適用，以下只描述目前狀態，不是進場建議。</p>'
+            f'<p style="margin:0 0 6px;font-size:12px;color:{MUTED}">報價為 Hyperliquid 股票／商品永續合約。'
+            f'20 年回測顯示：結構訊號在美股與商品上沒有勝過隨機進場，股票做空長期平均虧損，'
+            f'所以這裡只描述狀態與環境，不給進場建議。</p>'
             f'<table style="border-collapse:collapse;font-size:14px;width:100%"><tr style="color:{MUTED};font-size:12px">'
             f'<td>標的</td><td>價格</td><td>日線分數</td><td>狀態</td></tr>{rows}</table>')
 

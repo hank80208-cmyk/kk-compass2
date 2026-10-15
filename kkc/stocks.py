@@ -97,6 +97,23 @@ def analyze_one(name, coin):
         recent=recent, levels_d=lvd, levels_4h=lv4)
 
 
+COMMODITY = {"xyz:GOLD", "xyz:SILVER", "xyz:CL"}
+
+
+def env_note(x):
+    """依 20 年回測（Yahoo 日線、35 檔科技股＋7 種商品期貨）給的環境解讀。"""
+    sc = x.get("score")
+    if sc is None:
+        return ""
+    if x["coin"] in COMMODITY:
+        return "商品：回測看不出結構訊號有優勢"
+    if sc >= 4:
+        return "多頭環境：歷史上這時做多平均為正，但隨機買進也差不多，主要是順勢"
+    if sc <= -4:
+        return "空頭環境：歷史上股票做空平均仍是虧的，建議觀望而不是放空"
+    return "震盪：歷史上進場平均略虧"
+
+
 def describe(x):
     """一句話狀態描述（不是建議）。"""
     if x.get("error"):
@@ -118,7 +135,8 @@ def describe(x):
                 dist = (lv["trigger"] / x["price"] - 1) * 100
                 w.append(f"收盤{'站上' if d == 1 else '跌破'} {lv['trigger']:,.2f} 轉{'多' if d == 1 else '空'}（{dist:+.1f}%）")
         parts.append("等待：" + "；".join(w) if w else "日線沒有成形的結構")
-    return "，".join(parts)
+    note = env_note(x)
+    return "，".join(parts) + (f"。{note}" if note else "")
 
 
 def analyze_all(watch=None, log=print):
