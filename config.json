@@ -38,5 +38,25 @@
   "target_max_dd_pct": 20,
   "report_url": "https://claude.ai/artifact/Fbpc7JBnVXi9x2RHLcunZC",
   "email_include_link": false,
-  "us_track_from": "2026-10-14"
+  "us_track_from": "2026-10-16",
+  "us_positions": [
+    {
+      "symbol": "AMD",
+      "strat": "S1",
+      "date": "2026-10-15",
+      "note": "10/16 晚實際買進"
+    },
+    {
+      "symbol": "INTC",
+      "strat": "S1",
+      "date": "2026-10-15",
+      "note": "10/16 晚實際買進"
+    },
+    {
+      "symbol": "NVDA",
+      "strat": "S1",
+      "date": "2026-10-15",
+      "note": "10/16 晚實際買進"
+    }
+  ]
 }

@@ -103,24 +103,42 @@ def _walk(D, key, x):
     return None, "hold"
 
 
-def picks(D_by_sym, key, since):
-    """從 since（UTC 時間）起，照策略規則會進場的訊號：同一檔持倉中不重複進場；
-    同一天觸發太多時依「離 200 日均線最遠」挑前 PICK_N 檔。回傳 [(sym, x, 出場 j, 原因)]。"""
-    cand = []
+def _ny_date(ts):
+    return ts.tz_convert("America/New_York").strftime("%Y-%m-%d")
+
+
+def picks(D_by_sym, key, since, fixed=()):
+    """實際（或假設）會進場的部位，回傳 [(sym, x, 出場 j, 原因)]。
+
+    fixed：使用者實際持有、在 since 之前進場的部位 [(sym, 訊號日 YYYY-MM-DD)]。
+    since 之後假設照信操作：每天依「離 200 日均線最遠」挑前 PICK_N 檔，已持有的股票不重複買。
+    """
+    busy, out = {}, []
+    for sym, day in fixed:
+        D = D_by_sym.get(sym)
+        if D is None:
+            continue
+        xs = [x for x in signals(D, key) if _ny_date(x["time"]) == day]
+        if not xs:
+            continue
+        j, why = _walk(D, key, xs[0])
+        busy[sym] = j if j is not None else len(D)
+        out.append((sym, xs[0], j, why))
+    ev = []
     for sym, D in D_by_sym.items():
-        busy = -1
         for x in signals(D, key):
-            if D.index[x["i"]] < since or x["i"] <= busy:
-                continue
-            j, why = _walk(D, key, x)
-            busy = j if j is not None else len(D)
-            cand.append((D.index[x["i"]], -float(D["close"].iloc[x["i"]] / D["sma200"].iloc[x["i"]]), sym, x, j, why))
-    cand.sort(key=lambda r: (r[0], r[1]))
-    out, cnt = [], {}
-    for day, _, sym, x, j, why in cand:
+            if x["time"] >= since:
+                ev.append((_ny_date(x["time"]), -float(D["close"].iloc[x["i"]] / D["sma200"].iloc[x["i"]]), sym, x))
+    ev.sort(key=lambda r: (r[0], r[1]))
+    cnt = {}
+    for day, _, sym, x in ev:
+        if x["i"] <= busy.get(sym, -1) or cnt.get(day, 0) >= PICK_N[key]:
+            continue
         cnt[day] = cnt.get(day, 0) + 1
-        if cnt[day] <= PICK_N[key]:
-            out.append((sym, x, j, why))
+        D = D_by_sym[sym]
+        j, why = _walk(D, key, x)
+        busy[sym] = j if j is not None else len(D)
+        out.append((sym, x, j, why))
     return out
 
 
@@ -167,11 +185,12 @@ def scan(cfg=None, log=print, universe=None):
             stats[key] = dict(all=bt.stats(t), oos=bt.stats(oos), random=RANDOM_REF[key])
     sigs, holds = [], []
     live = {s: D for s, D in feats.items() if D.index[-1] == last_day}  # 排除停牌或資料落後
-    since = pd.Timestamp((cfg or {}).get("us_track_from", "2026-10-14"), tz="UTC")
+    since = pd.Timestamp((cfg or {}).get("us_track_from", "2026-10-16"), tz="UTC")
+    fixed = {k: [(p["symbol"], p["date"]) for p in (cfg or {}).get("us_positions", []) if p.get("strat", "S1") == k] for k in LIVE}
     line_name = {"sma5": "5 日均線", "ema20": "20 日 EMA", "ema50": "50 日 EMA"}
     for key in LIVE:
         chosen = set()
-        for sym, x, j, why in picks(live, key, since):
+        for sym, x, j, why in picks(live, key, since, fixed.get(key, ())):
             D = live[sym]
             last = len(D) - 1
             if x["i"] == last:   # 昨天收盤的新訊號：今晚買
