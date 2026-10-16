@@ -16,7 +16,8 @@ ITEMS = [  # (代號, 名稱, 類別)
     ("NQ=F", "Nasdaq 100 期貨", "fut"), ("ES=F", "S&P 500 期貨", "fut"), ("YM=F", "道瓊期貨", "fut"),
     ("^IXIC", "Nasdaq 綜合", "idx"), ("^GSPC", "S&P 500", "idx"), ("^DJI", "道瓊", "idx"),
     ("^SOX", "費城半導體", "sox"), ("^VIX", "VIX 恐慌指數", "vix"), ("^TNX", "美 10 年期殖利率", "tnx"),
-    ("DX-Y.NYB", "美元指數 DXY", "dxy"), ("^TWII", "台股加權", "idx"),
+    ("DX-Y.NYB", "美元指數 DXY", "dxy"), ("CL=F", "WTI 原油", "cmd"), ("BZ=F", "布蘭特原油", "cmd"),
+    ("GC=F", "黃金", "cmd"), ("^TWII", "台股加權", "idx"),
 ]
 _s = requests.Session()
 _s.headers["User-Agent"] = "Mozilla/5.0 (KK Compass 2)"
