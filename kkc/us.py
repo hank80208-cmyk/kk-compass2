@@ -189,7 +189,8 @@ def scan(cfg=None, log=print, universe=None):
             h["state"] = {"stopped": "stopped", "sell": "sell", "time": "sell", "hold": "hold"}[why]
             h["why"] = {"sell": f"收盤{'站上' if key == 'S1' else '跌破'}{h['line_name']}", "time": "持有天數到上限"}.get(why, "")
             holds.append(h)
-        for sym, D in live.items():   # 有觸發但沒被挑中（或已持有）的，列出但不建議
+        chosen |= {h['symbol'] for h in holds if h['strat'] == key}   # 已持有的不再列入「不建議再買」
+        for sym, D in live.items():   # 有觸發但沒被挑中的，列出但不建議
             if sym not in chosen and bool(D[{"S1": "s1", "S2": "s2"}[key]].iloc[-1]):
                 s = [x for x in signals(D, key) if x["i"] == len(D) - 1]
                 if s:
