@@ -82,6 +82,60 @@ def _usp_rows(p, open_tw):
     return rows
 
 
+def macro_html(items):
+    """大盤雷達：一張小表＋對我們策略的影響。"""
+    if not items:
+        return ""
+    from .macro import strategy_notes
+    rows = ""
+    for x in items:
+        if x.get("error"):
+            continue
+        k = x["kind"]
+        if k == "tnx":
+            val, chg = f"{x['price']:.3f}%", f"{x['chg_bp']:+.0f}bp"
+            note = f"20 日 {x['chg20_bp']:+.0f}bp" if x.get("chg20_bp") is not None else ""
+        else:
+            val, chg = fp(x["price"]), f"{x['chg']:+.2f}%"
+            note = ""
+            if k == "sox":
+                st = x.get("streak", 0)
+                note = (f"連 {abs(st)} 日{'漲' if st > 0 else '跌'}・" if abs(st) >= 2 else "") + (
+                    f"200 日線{'上' if x['vs200'] >= 0 else '下'} {x['vs200']:+.1f}%" if x.get("vs200") is not None else "")
+            elif k == "vix":
+                note = "≥25 恐慌" if x["price"] >= 25 else "≥20 偏高" if x["price"] >= 20 else "<15 平靜" if x["price"] < 15 else ""
+            elif k == "fut":
+                note = f"報價 {x['time']}"
+        up = x["chg"] > 0
+        col = (SHORT if up else LONG) if k in ("vix", "tnx", "dxy") else (LONG if up else SHORT)
+        rows += (f'<tr style="border-top:1px solid {LINE}"><td style="padding:3px 10px 3px 0;white-space:nowrap">{e(x["name"])}</td>'
+                 f'<td style="padding:3px 10px 3px 0;font-family:Menlo,Consolas,monospace;text-align:right">{e(val)}</td>'
+                 f'<td style="padding:3px 10px 3px 0;font-family:Menlo,Consolas,monospace;color:{col};text-align:right">{e(chg)}</td>'
+                 f'<td style="padding:3px 0;font-size:12px;color:{MUTED}">{e(note)}</td></tr>')
+    notes = "".join(f'<div style="font-size:13px;margin:2px 0">・{e(n)}</div>' for n in strategy_notes(items))
+    return (f'<h2 style="font-size:18px;margin:18px 0 4px;padding:5px 10px;background:#e6e8e3;color:{INK};border-radius:4px">大盤雷達</h2>'
+            f'<table style="border-collapse:collapse;font-size:13px">{rows}</table>'
+            + (f'<div style="margin-top:6px"><b style="font-size:13px">對我們策略的影響（有回測支持的）</b>{notes}</div>' if notes else "")
+            + f'<div style="font-size:11px;color:{MUTED};margin-top:2px">VIX／殖利率／美元：紅色＝上升（對股市偏壓力）。期貨為最新報價，指數為最近收盤。</div>')
+
+
+def macro_text(items):
+    if not items:
+        return []
+    from .macro import strategy_notes
+    out = ["【大盤雷達】"]
+    for x in items:
+        if x.get("error"):
+            continue
+        if x["kind"] == "tnx":
+            out.append(f"  {x['name']} {x['price']:.3f}%（{x['chg_bp']:+.0f}bp）")
+        else:
+            extra = f"，連 {abs(x['streak'])} 日{'漲' if x['streak'] > 0 else '跌'}" if x["kind"] == "sox" and abs(x.get("streak", 0)) >= 2 else ""
+            out.append(f"  {x['name']} {fp(x['price'])}（{x['chg']:+.2f}%{extra}）")
+    out += [f"  ・{n}" for n in strategy_notes(items)]
+    return out
+
+
 def us_todo(usm):
     """美股今晚要做的事：(買進, 賣出, 停損通知, 續抱)。"""
     if not usm or usm.get("error"):
@@ -114,7 +168,9 @@ def usm_html(usm):
                   f'<div style="font-size:20px;font-weight:bold;color:{LONG}">{e(p["symbol"])}　買進'
                   f'<span style="font-size:13px;color:{INK};font-weight:normal">　{tag}・{e(p["date"])} 收盤觸發</span></div>'
                   f'<table style="border-collapse:collapse;font-size:14px;margin-top:8px">{rows}</table></div>')
-    body = f'<h3 style="font-size:16px;margin:12px 0 6px">今晚買進</h3>' + (cards or f'<p style="color:{MUTED};margin:0">今晚沒有要買的。</p>')
+    blk = (f'<p style="font-size:13px;color:{ACC};margin:0 0 8px">費半在 200 日均線之下：新高突破訊號今天不做（回測這時平均虧損）。</p>'
+           if usm.get("s2_blocked") else "")
+    body = f'<h3 style="font-size:16px;margin:12px 0 6px">今晚買進</h3>' + blk + (cards or f'<p style="color:{MUTED};margin:0">今晚沒有要買的。</p>')
     # 持有中
     hrows = ""
     for h in sells + stopped + holding:
@@ -310,6 +366,7 @@ def build_email(ctx, report_url=None):
     html_body = f"""<div style="font-family:-apple-system,'PingFang TC','Microsoft JhengHei',sans-serif;color:{INK};max-width:640px;line-height:1.6">
 <div style="font-size:13px;color:{MUTED}">KK Compass 2・{e(ctx['now_tw'])}（台北）</div>
 {todo_html}
+{macro_html(ctx.get("macro"))}
 <h2 style="font-size:20px;margin:14px 0 4px;padding:6px 10px;background:#f3e3c3;color:{INK};border-radius:4px">₿ 加密貨幣區</h2>
 <div style="font-size:15px;margin:8px 0 2px">BTC 日線方向 <b style="font-size:26px;color:{btc_col}">{s:+.0f}</b> {e(ctx['btc_label'])}
 <span style="color:{MUTED}">・現價 {fp(ctx['btc_price'])}・{"200 日均線之上" if ctx['btc_bull'] else "200 日均線之下"}</span></div>
@@ -322,7 +379,7 @@ def build_email(ctx, report_url=None):
 這是規則式工具的輸出，不是投資建議；回測代表過去，不保證未來。下單前請自行確認價格。</p></div>"""
 
     # ---------------- 純文字
-    lines = [f"KK Compass 2・{ctx['now_tw']}（台北）", "", "【今天要做的事】"] + [f"  {t}" for t in todo] + ["", "【加密貨幣區】",
+    lines = [f"KK Compass 2・{ctx['now_tw']}（台北）", "", "【今天要做的事】"] + [f"  {t}" for t in todo] + [""] + macro_text(ctx.get("macro")) + ["", "【加密貨幣區】",
              f"BTC 日線方向 {s:+.0f} {ctx['btc_label']}・現價 {fp(ctx['btc_price'])}", guide, "", "今日策略建議"]
     if acts:
         for r in acts:

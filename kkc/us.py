@@ -107,7 +107,7 @@ def _ny_date(ts):
     return ts.tz_convert("America/New_York").strftime("%Y-%m-%d")
 
 
-def picks(D_by_sym, key, since, fixed=()):
+def picks(D_by_sym, key, since, fixed=(), allow=None):
     """實際（或假設）會進場的部位，回傳 [(sym, x, 出場 j, 原因)]。
 
     fixed：使用者實際持有、在 since 之前進場的部位 [(sym, 訊號日 YYYY-MM-DD)]。
@@ -133,6 +133,8 @@ def picks(D_by_sym, key, since, fixed=()):
     cnt = {}
     for day, _, sym, x in ev:
         if x["i"] <= busy.get(sym, -1) or cnt.get(day, 0) >= PICK_N[key]:
+            continue
+        if allow and not allow(day):
             continue
         cnt[day] = cnt.get(day, 0) + 1
         D = D_by_sym[sym]
@@ -188,9 +190,19 @@ def scan(cfg=None, log=print, universe=None):
     since = pd.Timestamp((cfg or {}).get("us_track_from", "2026-10-16"), tz="UTC")
     fixed = {k: [(p["symbol"], p["date"]) for p in (cfg or {}).get("us_positions", []) if p.get("strat", "S1") == k] for k in LIVE}
     line_name = {"sma5": "5 日均線", "ema20": "20 日 EMA", "ema50": "50 日 EMA"}
+    # 費半在 200 日均線之下的日子不做新高突破（20 年前後兩段都為負）
+    sox_ok = {}
+    try:
+        sx = yahoo.daily("^SOX")
+        ok = sx["close"] >= sx["close"].rolling(200).mean()
+        sox_ok = {_ny_date(t): bool(v) for t, v in ok.items()}
+    except Exception:  # noqa — 抓不到就不過濾
+        pass
+    s2_allow = (lambda day: sox_ok.get(day, True))
+    s2_blocked = bool(sox_ok) and not sox_ok.get(_ny_date(last_day), True)
     for key in LIVE:
         chosen = set()
-        for sym, x, j, why in picks(live, key, since, fixed.get(key, ())):
+        for sym, x, j, why in picks(live, key, since, fixed.get(key, ()), s2_allow if key == "S2" else None):
             D = live[sym]
             last = len(D) - 1
             if x["i"] == last:   # 昨天收盤的新訊號：今晚買
@@ -221,4 +233,4 @@ def scan(cfg=None, log=print, universe=None):
     return dict(date=last_day.tz_convert("America/New_York").strftime("%Y-%m-%d"),
                 qqq=dict(price=float(q["close"]), sma200=float(q["sma200"]), score=float(q["score"]),
                          label=sg.score_label(q["score"]), up=bool(q["close"] > q["sma200"])),
-                signals=sigs, holds=holds, stats=stats, n=len(feats), fail=fail)
+                signals=sigs, holds=holds, s2_blocked=s2_blocked, stats=stats, n=len(feats), fail=fail)
