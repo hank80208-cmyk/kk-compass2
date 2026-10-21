@@ -45,19 +45,26 @@
       "symbol": "AMD",
       "strat": "S1",
       "date": "2026-10-15",
-      "note": "10/16 晚實際買進"
+      "note": "10/16 晚實際買進",
+      "entry": 547.55,
+      "entry_note": "（估：10/16 開盤價）"
     },
     {
       "symbol": "INTC",
       "strat": "S1",
       "date": "2026-10-15",
-      "note": "10/16 晚實際買進"
+      "note": "10/16 晚實際買進",
+      "entry": 93.48,
+      "entry_note": "（估：10/16 開盤價）"
     },
     {
       "symbol": "NVDA",
       "strat": "S1",
       "date": "2026-10-15",
-      "note": "10/16 晚實際買進"
+      "note": "10/16 晚實際買進",
+      "entry": 216.56,
+      "entry_note": "（估：10/16 開盤價）"
     }
-  ]
+  ],
+  "us_assume_follow": false
 }

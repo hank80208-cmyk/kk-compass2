@@ -180,11 +180,21 @@ def usm_html(usm):
             act, col = f"昨天已打到停損 {fp(h['stop'])}，停損單應已成交，請確認", SHORT
         else:
             act, col = f"續抱。停損 {fp(h['stop'])} 不動；收盤{'站上' if h['strat'] == 'S1' else '跌破'}{h['line_name']}（目前 {fp(h['line'])}）才賣", MUTED
+        if h.get("exit_above") and h["state"] == "hold":
+            act += f"。今晚收盤 > {fp(h['exit_above'])} 就觸發出場（明晚開盤賣）"
+        pnl = ""
+        if h.get("mark"):
+            pnl = f"合約價 {fp(h['mark'])}"
+            if h.get("entry"):
+                pc = h.get("pnl_pct", 0)
+                pnl += (f"・成交 {fp(h['entry'])}{e(h.get('entry_note', ''))}・"
+                        f"<span style=\"color:{LONG if pc >= 0 else SHORT}\">{pc:+.2f}%</span>")
         hrows += (f'<tr style="border-top:1px solid {LINE}"><td style="padding:5px 10px 5px 0;white-space:nowrap;vertical-align:top"><b>{e(h["symbol"])}</b><br>'
-                  f'<span style="font-size:12px;color:{MUTED}">{e(h["date"])} 買・第 {h["held"]} 天</span></td>'
+                  f'<span style="font-size:12px;color:{MUTED}">{e(h["date"])} 訊號・第 {h["held"]} 天</span>'
+                  + (f'<br><span style="font-size:12px">{pnl}</span>' if pnl else "") + '</td>'
                   f'<td style="padding:5px 0;font-size:13px;color:{col if h["state"] != "hold" else INK}">{e(act)}</td></tr>')
     if hrows:
-        body += (f'<h3 style="font-size:16px;margin:18px 0 6px">持有中（照之前的信買進的話）</h3>'
+        body += (f'<h3 style="font-size:16px;margin:18px 0 6px">持有中</h3>'
                  f'<table style="border-collapse:collapse;font-size:14px;width:100%">{hrows}</table>')
     others = [p for p in usm.get("signals", []) if not p.get("pick")]
     if others:

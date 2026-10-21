@@ -188,6 +188,15 @@ def scan(cfg=None, log=print, universe=None):
     sigs, holds = [], []
     live = {s: D for s, D in feats.items() if D.index[-1] == last_day}  # 排除停牌或資料落後
     since = pd.Timestamp((cfg or {}).get("us_track_from", "2026-10-16"), tz="UTC")
+    if not (cfg or {}).get("us_assume_follow", True):
+        since = last_day   # 只追蹤實際部位（us_positions），不假設之前的訊號都有買
+    pos_info = {p["symbol"]: p for p in (cfg or {}).get("us_positions", [])}
+    mids = {}
+    try:   # 合約價（Hyperliquid 股票永續，接近 Bybit 美股合約）
+        import requests
+        mids = requests.post("https://api.hyperliquid.xyz/info", json={"type": "allMids", "dex": "xyz"}, timeout=20).json()
+    except Exception:  # noqa
+        pass
     fixed = {k: [(p["symbol"], p["date"]) for p in (cfg or {}).get("us_positions", []) if p.get("strat", "S1") == k] for k in LIVE}
     line_name = {"sma5": "5 日均線", "ema20": "20 日 EMA", "ema50": "50 日 EMA"}
     # 費半在 200 日均線之下的日子不做新高突破（20 年前後兩段都為負）
@@ -218,6 +227,17 @@ def scan(cfg=None, log=print, universe=None):
                      date=x["time"].tz_convert("America/New_York").strftime("%m-%d"), held=last - x["i"],
                      line=float(D[STRATS[key]["line"]].iloc[-1]), line_name=line_name[STRATS[key]["line"]])
             h["state"] = {"stopped": "stopped", "sell": "sell", "time": "sell", "hold": "hold"}[why]
+            pi = pos_info.get(sym, {})
+            h["actual"] = sym in pos_info
+            h["entry"] = pi.get("entry")
+            h["entry_note"] = pi.get("entry_note", "")
+            m = mids.get(f"xyz:{sym}")
+            h["mark"] = float(m) if m else None
+            if h["entry"] and h["mark"]:
+                h["pnl_pct"] = (h["mark"] / h["entry"] - 1) * 100
+            # 今晚收盤要站上多少才會觸發 S1 出場（收盤 > 含今天的 5 日均）
+            if key == "S1":
+                h["exit_above"] = float(D["close"].iloc[-4:].sum() / 4)
             h["why"] = {"sell": f"收盤{'站上' if key == 'S1' else '跌破'}{h['line_name']}", "time": "持有天數到上限"}.get(why, "")
             holds.append(h)
         chosen |= {h['symbol'] for h in holds if h['strat'] == key}   # 已持有的不再列入「不建議再買」
