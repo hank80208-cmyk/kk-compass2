@@ -208,7 +208,10 @@ def grade_btc(s, cfg, tf="4h"):
     if strong and not aligned:
         return "D"
     if aligned:
-        return "A" if s["pull_risk_pct"] <= cap else "B"
+        # 老師「突破要放量」：短線 4H 量比 < 1 降為 C（6 年回測樣本外 +0.03R vs +0.44R）
+           if tf == "4h" and s.get("vol_ratio4", np.inf) < cfg.get("min_vol_ratio_4h", 1.0):
+               return "C"
+           return "A" if s["pull_risk_pct"] <= cap else "B"
     return "C"
 
 
