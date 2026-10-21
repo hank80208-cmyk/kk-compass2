@@ -14,6 +14,7 @@
   "min_room_r": 2.0,
   "btc_strong_score": 4,
   "max_risk_pct": 5.5,
+  "min_vol_ratio_4h": 1.0,
   "signal_fresh_bars": 6,
   "max_hold_hours": 168,
   "retest_bars": 12,
